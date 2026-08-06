@@ -57,7 +57,6 @@ const NeonArrows = () => (
   </div>
 );
 
-// Кастомный инпут для чисел со скрытыми дефолтными стрелками и собственными кнопками
 const CustomNumberInput = ({ value, onChange, max, step = 1, placeholder = '' }: { value: string, onChange: (v: string) => void, max?: number, step?: number, placeholder?: string }) => {
   const handleUp = () => {
     const num = parseFloat(value) || 0;
@@ -102,10 +101,15 @@ export default function App() {
   const [anvilsStr, setAnvilsStr] = useState<string>('2600');
   const [expandedTierTotal, setExpandedTierTotal] = useState<Tier | null>(null);
 
-  const [pathCurrentTier, setPathCurrentTier] = useState<Tier>('Red');
+  const [pathCurrentTier, setPathCurrentTier] = useState<Tier>('White');
   const [pathCurrentStar, setPathCurrentStar] = useState<number>(1);
   const [extraShardsStr, setExtraShardsStr] = useState<string>('0');
-  const [expandedTierPath, setExpandedTierPath] = useState<Tier | null>('Red');
+  const [expandedTierPath, setExpandedTierPath] = useState<Tier | null>('White');
+
+  // Новые стейты для выбора цели
+  const [pathTargetTier, setPathTargetTier] = useState<Tier>('Red');
+  const [pathTargetStar, setPathTargetStar] = useState<number>(5);
+  const [expandedTargetTierPath, setExpandedTargetTierPath] = useState<Tier | null>('Red');
 
   // ==================== ЛОГИКА ВКЛАДКИ 1: TOTAL ====================
   const validAnvils = isNaN(parseFloat(anvilsStr)) ? 0 : Math.max(0, parseFloat(anvilsStr));
@@ -157,14 +161,17 @@ export default function App() {
     }
   };
 
-  // ==================== ЛОГИКА ВКЛАДКИ 2: PATH TO MAX ====================
+  // ==================== ЛОГИКА ВКЛАДКИ 2: PATH TO TARGET ====================
   const pathBaseTarget = STAR_DATA.find(s => s.tier === pathCurrentTier && s.stars === pathCurrentStar);
   const pathBaseShards = pathBaseTarget ? pathBaseTarget.totalShards : 0;
   
   const parsedExtraShards = isNaN(parseFloat(extraShardsStr)) ? 0 : Math.max(0, parseFloat(extraShardsStr));
   const totalOwnedShards = Math.min(pathBaseShards + parsedExtraShards, MAX_SHARDS);
   
-  const remainingShards = Math.max(0, MAX_SHARDS - totalOwnedShards);
+  const pathFinalTarget = STAR_DATA.find(s => s.tier === pathTargetTier && s.stars === pathTargetStar);
+  const pathTargetShards = pathFinalTarget ? pathFinalTarget.totalShards : 0;
+
+  const remainingShards = Math.max(0, pathTargetShards - totalOwnedShards);
   const remainingCopies = Math.ceil(remainingShards / SHARDS_PER_COPY);
   const remainingAnvils = Math.round(remainingCopies * luckLevel);
 
@@ -177,12 +184,12 @@ export default function App() {
         
         <div className="bg-gray-950/80 p-6 border-b border-gray-700">
           <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-500 bg-clip-text text-transparent mb-6 text-center">
-            DC Dark Legion — Pull Calculator
+            DC Dark Legion — Gacha Calculator
           </h1>
           
           <div className="flex gap-2 p-1 bg-gray-800 rounded-lg">
             <button onClick={() => setActiveTab('total')} className={`flex-1 py-3 text-sm font-bold rounded-md transition-all ${activeTab === 'total' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}>Total Cost</button>
-            <button onClick={() => setActiveTab('path')} className={`flex-1 py-3 text-sm font-bold rounded-md transition-all ${activeTab === 'path' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}>Path to Max</button>
+            <button onClick={() => setActiveTab('path')} className={`flex-1 py-3 text-sm font-bold rounded-md transition-all ${activeTab === 'path' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}>Path to Target</button>
           </div>
         </div>
 
@@ -288,14 +295,41 @@ export default function App() {
                 />
               </div>
 
+              <div className="pt-6 border-t border-gray-700">
+                <label className="block mb-3 text-sm font-semibold text-gray-300">3. Select your Target Tier & Stars</label>
+                <div className="grid grid-cols-5 gap-2">
+                  {(['White', 'Blue', 'Purple', 'Gold', 'Red'] as Tier[]).map((tier) => {
+                    const isActive = pathTargetTier === tier;
+                    const btnClass = isActive ? TIER_COLORS[tier].active : 'bg-gray-900 text-gray-400 border-gray-700 hover:border-gray-500 hover:text-gray-200';
+                    return <button key={tier} onClick={() => { setPathTargetTier(tier); setExpandedTargetTierPath(tier); setPathTargetStar(1); }} className={`py-3 rounded font-bold text-sm transition-all border ${btnClass}`}>{tier}</button>;
+                  })}
+                </div>
+                {expandedTargetTierPath && (
+                  <div className="grid grid-cols-5 gap-2 pt-2">
+                    {[1, 2, 3, 4, 5].map((star) => {
+                      const isSelected = pathTargetStar === star;
+                      const colorClass = isSelected ? TIER_COLORS[expandedTargetTierPath].active : TIER_COLORS[expandedTargetTierPath].outline;
+                      return <button key={star} onClick={() => setPathTargetStar(star)} className={`py-2 rounded border text-sm transition-all font-bold ${colorClass}`}>{star}★</button>;
+                    })}
+                  </div>
+                )}
+              </div>
+
               <div className="bg-gray-950 border border-purple-500/30 rounded-xl p-6 shadow-inner relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-purple-500"></div>
-                <h3 className="text-lg font-bold text-purple-400 mb-4">Remaining to Red 5★</h3>
-                <div className="grid grid-cols-3 gap-4 text-center">
-                  <div className="space-y-1"><div className="text-sm text-gray-400">Shards</div><div className="text-2xl font-bold text-gray-100">{remainingShards}</div></div>
-                  <div className="space-y-1"><div className="text-sm text-gray-400">Copies</div><div className="text-2xl font-bold text-gray-100">{remainingCopies}</div></div>
-                  <div className="space-y-1"><div className="text-sm text-gray-400">Anvils</div><div className="text-2xl font-bold text-green-400 drop-shadow-[0_0_5px_rgba(74,222,128,0.5)]">{remainingAnvils}</div></div>
-                </div>
+                <h3 className="text-lg font-bold text-purple-400 mb-4">Remaining to {pathTargetTier} {pathTargetStar}★</h3>
+                
+                {remainingShards === 0 ? (
+                  <div className="text-center text-gray-400 py-2">
+                    You have already reached or surpassed this target! 🎉
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-4 text-center">
+                    <div className="space-y-1"><div className="text-sm text-gray-400">Shards</div><div className="text-2xl font-bold text-gray-100">{remainingShards}</div></div>
+                    <div className="space-y-1"><div className="text-sm text-gray-400">Copies</div><div className="text-2xl font-bold text-gray-100">{remainingCopies}</div></div>
+                    <div className="space-y-1"><div className="text-sm text-gray-400">Anvils</div><div className="text-2xl font-bold text-green-400 drop-shadow-[0_0_5px_rgba(74,222,128,0.5)]">{remainingAnvils}</div></div>
+                  </div>
+                )}
               </div>
             </div>
           )}
