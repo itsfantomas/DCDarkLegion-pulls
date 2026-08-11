@@ -329,6 +329,18 @@ export default function App() {
     e.target.value = '';
   };
 
+// Полная очистка расписания
+  const handleClearAll = () => {
+    if (window.confirm('Are you sure you want to clear your entire schedule? This cannot be undone!')) {
+      setSchedule([]);
+      // Сбрасываем стартовые настройки на сегодняшний день
+      setTrackingSettings({ startDate: new Date().toISOString().split('T')[0], anvils: 0 });
+      // На всякий случай жестко чистим кэш браузера
+      localStorage.removeItem('dc-legion-schedule');
+      localStorage.removeItem('dc-legion-tracking');
+    }
+  };
+
   const handleAddBanner = () => {
     const newId = generateId();
     setSchedule([...schedule, { id: newId, name: '', type: 'Release', customStartDate: '', decision: 'Skip', budget: 300 }]);
@@ -582,6 +594,12 @@ export default function App() {
     📂 Load Backup
     <input type="file" accept=".json" onChange={handleImport} className="hidden" />
   </label>
+
+<button onClick={handleClearAll} 
+        className="px-4 py-2 text-sm bg-gray-900 hover:bg-red-900/20 text-red-500 hover:text-red-400 rounded border border-red-900/30 hover:border-red-500/50 transition-colors shadow-sm"
+                >
+                  🗑️ Clear All
+</button>
 </div>
 
               {finalResult && (
