@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 
 type Tier = 'White' | 'Blue' | 'Purple' | 'Gold' | 'Red';
 
@@ -49,6 +49,117 @@ const TIER_COLORS = {
   Red: { active: 'bg-red-500 text-white border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)]', outline: 'border-red-500/50 text-red-400 hover:bg-red-500/20' },
 };
 
+// ==================== SCHEDULE PLANNER UTILS ====================
+interface BannerNode {
+  id: string;
+  name: string;
+  type: 'Release' | 'Rerun';
+  customStartDate: string;
+  decision: 'Skip' | 'Pull';
+  budget: number;
+}
+
+const parseDateString = (dateStr: string) => {
+  if (!dateStr || typeof dateStr !== 'string') return new Date();
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return new Date();
+  const parsedDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+  return isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+};
+
+const formatDate = (date: Date) => {
+  if (isNaN(date.getTime())) return 'Invalid Date';
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const generateId = () => Math.random().toString(36).substring(2, 9);
+
+const calculateSchedule = (banners: BannerNode[], trackingStartDate: string, initialAnvils: number) => {
+  if (!Array.isArray(banners)) return { placed: [], results: {} };
+  
+  // Создаем ДВА независимых параллельных трека
+  let nextReleaseStart = parseDateString(trackingStartDate);
+  let nextRerunStart = parseDateString(trackingStartDate);
+  
+  const placed = banners.map(b => {
+    let sDate: Date;
+    
+    if (b.customStartDate) {
+      sDate = parseDateString(b.customStartDate);
+      // Если юзер жестко задал дату, сбрасываем нужный трек на эту дату
+      if (b.type === 'Release') nextReleaseStart = new Date(sDate);
+      else nextRerunStart = new Date(sDate);
+    } else {
+      // Если даты нет, берем старт из соответствующего трека!
+      sDate = b.type === 'Release' ? new Date(nextReleaseStart) : new Date(nextRerunStart);
+    }
+    
+    const duration = b.type === 'Release' ? 28 : 14;
+    
+    // Вычисляем конец
+    const eDate = new Date(sDate);
+    eDate.setDate(eDate.getDate() + duration - 1);
+    
+    // Вычисляем старт для следующего баннера в ЭТОЙ ЖЕ цепочке
+    const nextDate = new Date(eDate);
+    nextDate.setDate(nextDate.getDate() + 1);
+    
+    if (b.type === 'Release') {
+      nextReleaseStart = nextDate;
+    } else {
+      nextRerunStart = nextDate;
+    }
+    
+    return { ...b, startDate: sDate, endDate: eDate };
+  });
+
+  const sorted = [...placed].sort((a, b) => a.endDate.getTime() - b.endDate.getTime());
+
+  let minDate = parseDateString(trackingStartDate);
+  placed.forEach(b => {
+    if (b.startDate < minDate) minDate = new Date(b.startDate);
+  });
+  
+  let simDate = new Date(minDate);
+  const maxDate = sorted.length > 0 ? new Date(sorted[sorted.length - 1].endDate) : new Date(simDate);
+  
+  let currAnvils = initialAnvils || 0;
+  let currGems = 0;
+  const results: Record<string, { anvilsBefore: number, anvilsAfter: number, gemsCost: number }> = {};
+  
+  let safeguards = 0;
+  if (isNaN(simDate.getTime()) || isNaN(maxDate.getTime())) return { placed, results };
+
+  while(simDate <= maxDate && safeguards < 3650) { 
+    currAnvils += 7;
+    currGems += 180;
+    const day = simDate.getDay();
+    if (day === 1) currAnvils += 4; 
+    if (day === 0) { 
+      currAnvils += 40;
+      currGems += 3000;
+    }
+    
+    sorted.forEach(b => {
+      if (b.endDate.getTime() === simDate.getTime()) {
+         const anvilsBefore = currAnvils;
+         const budget = Number(b.budget) || 0;
+         if (b.decision === 'Pull') currAnvils -= budget;
+         results[b.id] = { anvilsBefore, anvilsAfter: currAnvils, gemsCost: currGems };
+      }
+    });
+    
+    simDate.setDate(simDate.getDate() + 1);
+    safeguards++;
+  }
+  
+  return { placed, results };
+};
+
+// ==================== UI COMPONENTS ====================
 const NeonArrows = () => (
   <div className="hidden md:flex items-center justify-center shrink-0 mx-2 mt-4">
     <span className="text-purple-500 font-bold tracking-widest drop-shadow-[0_0_8px_rgba(168,85,247,0.8)] text-xl">
@@ -73,15 +184,7 @@ const CustomNumberInput = ({ value, onChange, max, step = 1, placeholder = '' }:
 
   return (
     <div className="relative">
-      <input
-        type="number"
-        min="0"
-        step={step}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full bg-gray-950 border border-gray-600 rounded p-3 pr-10 text-lg focus:border-purple-500 outline-none transition-colors [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-      />
+      <input type="number" min="0" step={step} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full bg-gray-950 border border-gray-600 rounded p-3 pr-10 text-lg focus:border-purple-500 outline-none transition-colors [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]" />
       <div className="absolute right-2 top-0 bottom-0 flex flex-col justify-center gap-1">
         <button onClick={handleUp} className="text-gray-500 hover:text-purple-400 bg-gray-900 rounded p-0.5 transition-colors border border-gray-700 hover:border-purple-500">
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" /></svg>
@@ -95,7 +198,7 @@ const CustomNumberInput = ({ value, onChange, max, step = 1, placeholder = '' }:
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'total' | 'path'>('total');
+  const [activeTab, setActiveTab] = useState<'total' | 'path' | 'schedule'>('schedule');
   const [luckLevel, setLuckLevel] = useState<number>(100);
 
   const [anvilsStr, setAnvilsStr] = useState<string>('2600');
@@ -105,13 +208,39 @@ export default function App() {
   const [pathCurrentStar, setPathCurrentStar] = useState<number>(1);
   const [extraShardsStr, setExtraShardsStr] = useState<string>('0');
   const [expandedTierPath, setExpandedTierPath] = useState<Tier | null>('White');
-
-  // Новые стейты для выбора цели
   const [pathTargetTier, setPathTargetTier] = useState<Tier>('Red');
   const [pathTargetStar, setPathTargetStar] = useState<number>(5);
   const [expandedTargetTierPath, setExpandedTargetTierPath] = useState<Tier | null>('Red');
 
-  // ==================== ЛОГИКА ВКЛАДКИ 1: TOTAL ====================
+  const [schedule, setSchedule] = useState<BannerNode[]>(() => {
+    try {
+      const saved = localStorage.getItem('dc-legion-schedule');
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  
+  const [trackingSettings, setTrackingSettings] = useState(() => {
+    const defaultSettings = { startDate: new Date().toISOString().split('T')[0], anvils: 0 };
+    try {
+      const saved = localStorage.getItem('dc-legion-tracking');
+      if (!saved) return defaultSettings;
+      const parsed = JSON.parse(saved);
+      return { ...defaultSettings, ...parsed }; 
+    } catch (e) {
+      return defaultSettings;
+    }
+  });
+
+  const [editingBannerId, setEditingBannerId] = useState<string | null>(null);
+
+  useEffect(() => { localStorage.setItem('dc-legion-schedule', JSON.stringify(schedule)); }, [schedule]);
+  useEffect(() => { localStorage.setItem('dc-legion-tracking', JSON.stringify(trackingSettings)); }, [trackingSettings]);
+
+  // ==================== TOTAL COST ЛОГИКА ====================
   const validAnvils = isNaN(parseFloat(anvilsStr)) ? 0 : Math.max(0, parseFloat(anvilsStr));
   const cappedAnvils = Math.min(validAnvils, MAX_COPIES * luckLevel);
   const calculatedCopies = Math.min(cappedAnvils / luckLevel, MAX_COPIES);
@@ -120,9 +249,8 @@ export default function App() {
   const totalCurrentStar = useMemo(() => {
     let current = STAR_DATA[0];
     for (let i = 0; i < STAR_DATA.length; i++) {
-      if (calculatedShards >= STAR_DATA[i].totalShards) {
-        current = STAR_DATA[i];
-      } else { break; }
+      if (calculatedShards >= STAR_DATA[i].totalShards) current = STAR_DATA[i];
+      else break;
     }
     return current;
   }, [calculatedShards]);
@@ -136,74 +264,175 @@ export default function App() {
   const handleTotalCopiesChange = (val: string) => {
     if (val === '') { setAnvilsStr(''); return; }
     const num = parseFloat(val);
-    if (!isNaN(num)) {
-      const validNum = Math.max(0, num);
-      setAnvilsStr(Math.round(Math.min(validNum, MAX_COPIES) * luckLevel).toString());
-    }
+    if (!isNaN(num)) setAnvilsStr(Math.round(Math.min(Math.max(0, num), MAX_COPIES) * luckLevel).toString());
   };
 
   const handleTotalShardsChange = (val: string) => {
     if (val === '') { setAnvilsStr(''); return; }
     const num = parseFloat(val);
     if (!isNaN(num)) {
-      const validNum = Math.max(0, num);
-      const capped = Math.min(validNum, MAX_SHARDS);
-      const copies = (capped / SHARDS_PER_COPY) + 1;
-      setAnvilsStr(Math.round(copies * luckLevel).toString());
+      const capped = Math.min(Math.max(0, num), MAX_SHARDS);
+      setAnvilsStr(Math.round(((capped / SHARDS_PER_COPY) + 1) * luckLevel).toString());
     }
   };
 
   const handleTotalStarSelect = (tier: Tier, stars: number) => {
     const target = STAR_DATA.find((s) => s.tier === tier && s.stars === stars);
-    if (target) {
-      const copies = (target.totalShards / SHARDS_PER_COPY) + 1;
-      setAnvilsStr(Math.round(copies * luckLevel).toString());
-    }
+    if (target) setAnvilsStr(Math.round(((target.totalShards / SHARDS_PER_COPY) + 1) * luckLevel).toString());
   };
 
-  // ==================== ЛОГИКА ВКЛАДКИ 2: PATH TO TARGET ====================
+  // ==================== PATH TO TARGET ЛОГИКА ====================
   const pathBaseTarget = STAR_DATA.find(s => s.tier === pathCurrentTier && s.stars === pathCurrentStar);
   const pathBaseShards = pathBaseTarget ? pathBaseTarget.totalShards : 0;
-  
   const parsedExtraShards = isNaN(parseFloat(extraShardsStr)) ? 0 : Math.max(0, parseFloat(extraShardsStr));
   const totalOwnedShards = Math.min(pathBaseShards + parsedExtraShards, MAX_SHARDS);
-  
   const pathFinalTarget = STAR_DATA.find(s => s.tier === pathTargetTier && s.stars === pathTargetStar);
   const pathTargetShards = pathFinalTarget ? pathFinalTarget.totalShards : 0;
-
   const remainingShards = Math.max(0, pathTargetShards - totalOwnedShards);
   const remainingCopies = Math.ceil(remainingShards / SHARDS_PER_COPY);
   const remainingAnvils = Math.round(remainingCopies * luckLevel);
 
+  // ==================== SCHEDULE PLANNER ЛОГИКА ====================
+  const { placed: placedBanners, results: scheduleResults } = useMemo(() => {
+    return calculateSchedule(schedule, trackingSettings.startDate, trackingSettings.anvils);
+  }, [schedule, trackingSettings]);
+
+// Экспорт данных в файлик
+  const handleExport = () => {
+    const dataToSave = { schedule, trackingSettings };
+    const blob = new Blob([JSON.stringify(dataToSave, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'dc_legion_backup.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Импорт данных из файлика
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        if (parsed.schedule) setSchedule(parsed.schedule);
+        if (parsed.trackingSettings) setTrackingSettings(parsed.trackingSettings);
+        alert('Schedule successfully restored! 🎉');
+      } catch (err) {
+        alert('Error reading file. Make sure it is a valid backup JSON.');
+      }
+    };
+    reader.readAsText(file);
+    // Сбрасываем input, чтобы можно было загрузить тот же файл еще раз
+    e.target.value = '';
+  };
+
+  const handleAddBanner = () => {
+    const newId = generateId();
+    setSchedule([...schedule, { id: newId, name: '', type: 'Release', customStartDate: '', decision: 'Skip', budget: 300 }]);
+    setEditingBannerId(newId);
+  };
+  const handleDeleteBanner = (id: string) => {
+    setSchedule(schedule.filter(b => b.id !== id));
+    if (editingBannerId === id) setEditingBannerId(null);
+  };
+  const updateBanner = (id: string, field: keyof BannerNode, value: any) => setSchedule(schedule.map(b => b.id === id ? { ...b, [field]: value } : b));
+  
+  const moveBanner = (index: number, direction: 'up' | 'down') => {
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === schedule.length - 1) return;
+    const newSchedule = [...schedule];
+    const swapIndex = direction === 'up' ? index - 1 : index + 1;
+    [newSchedule[index], newSchedule[swapIndex]] = [newSchedule[swapIndex], newSchedule[index]];
+    setSchedule(newSchedule);
+  };
+
+  const editingBanner = schedule.find(b => b.id === editingBannerId);
+  const finalResult = placedBanners.length > 0 ? scheduleResults[placedBanners[placedBanners.length - 1].id] : null;
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-4 md:p-8 font-sans relative overflow-hidden flex flex-col items-center">
-      
       <div className="absolute inset-0 opacity-15 bg-[radial-gradient(circle,rgba(168,85,247,0.4)_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none"></div>
 
+      {/* МОДАЛЬНОЕ ОКНО (ПОПАП) ДЛЯ РЕДАКТИРОВАНИЯ */}
+      {editingBanner && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-gray-900 border border-purple-500/50 rounded-2xl p-6 w-full max-w-md shadow-2xl relative">
+            <button onClick={() => setEditingBannerId(null)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-xl">✕</button>
+            <h3 className="text-xl font-bold text-purple-400 mb-6 border-b border-gray-800 pb-2">Banner Settings</h3>
+            
+            <div className="space-y-5">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Character Name</label>
+                <input value={editingBanner.name} onChange={e => updateBanner(editingBanner.id, 'name', e.target.value)} className="w-full bg-gray-950 border border-gray-700 rounded p-3 text-sm text-gray-200 outline-none focus:border-purple-500 transition-colors" placeholder="e.g. Nightwing" autoFocus />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Banner Type</label>
+                  <select value={editingBanner.type} onChange={e => updateBanner(editingBanner.id, 'type', e.target.value as any)} className="w-full bg-gray-950 border border-gray-700 rounded p-3 text-sm text-gray-200 outline-none focus:border-purple-500 transition-colors">
+                    <option value="Release">Release (28 days)</option>
+                    <option value="Rerun">Rerun (14 days)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Start Date</label>
+                  <input type="date" value={editingBanner.customStartDate || ''} onChange={e => updateBanner(editingBanner.id, 'customStartDate', e.target.value)} className="w-full bg-gray-950 border border-gray-700 rounded p-3 text-sm text-gray-200 outline-none focus:border-purple-500 transition-colors" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Decision</label>
+                  <select value={editingBanner.decision} onChange={e => updateBanner(editingBanner.id, 'decision', e.target.value as any)} className="w-full bg-gray-950 border border-gray-700 rounded p-3 text-sm text-gray-200 outline-none focus:border-purple-500 transition-colors">
+                    <option value="Skip">Skip</option>
+                    <option value="Pull">Pull</option>
+                  </select>
+                </div>
+                <div className={`transition-opacity ${editingBanner.decision === 'Pull' ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
+                  <label className="block text-xs text-gray-400 mb-1">Pull Budget</label>
+                  <CustomNumberInput value={String(editingBanner.budget || 0)} onChange={v => { if (v === '') { updateBanner(editingBanner.id, 'budget', 0); return; } const n = parseInt(v, 10); if(!isNaN(n)) updateBanner(editingBanner.id, 'budget', Math.max(0, n)); }} step={1} />
+                </div>
+              </div>
+
+              <div className="pt-4 flex justify-between">
+                <button onClick={() => handleDeleteBanner(editingBanner.id)} className="px-4 py-2 text-sm text-red-500 hover:bg-red-500/10 rounded transition-colors">Delete Banner</button>
+                <button onClick={() => setEditingBannerId(null)} className="px-6 py-2 text-sm bg-purple-600 hover:bg-purple-500 text-white rounded transition-colors font-bold shadow-lg">Save & Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="w-full max-w-4xl relative z-10 bg-gray-900/90 backdrop-blur-md rounded-2xl shadow-2xl overflow-hidden border border-gray-700">
-        
         <div className="bg-gray-950/80 p-6 border-b border-gray-700">
           <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-500 bg-clip-text text-transparent mb-6 text-center">
             DC Dark Legion — Gacha Calculator
           </h1>
           
-          <div className="flex gap-2 p-1 bg-gray-800 rounded-lg">
-            <button onClick={() => setActiveTab('total')} className={`flex-1 py-3 text-sm font-bold rounded-md transition-all ${activeTab === 'total' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}>Total Cost</button>
-            <button onClick={() => setActiveTab('path')} className={`flex-1 py-3 text-sm font-bold rounded-md transition-all ${activeTab === 'path' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}>Path to Target</button>
+          <div className="flex flex-wrap gap-2 p-1 bg-gray-800 rounded-lg">
+            <button onClick={() => setActiveTab('total')} className={`flex-1 py-3 px-2 text-sm font-bold rounded-md transition-all ${activeTab === 'total' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}>Total Cost</button>
+            <button onClick={() => setActiveTab('path')} className={`flex-1 py-3 px-2 text-sm font-bold rounded-md transition-all ${activeTab === 'path' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}>Path to Target</button>
+            <button onClick={() => setActiveTab('schedule')} className={`flex-1 py-3 px-2 text-sm font-bold rounded-md transition-all ${activeTab === 'schedule' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}>F2P Schedule</button>
           </div>
         </div>
 
-        <div className="p-6 md:p-8 space-y-8">
+        <div className="p-6 md:p-8">
           
-          <div className="mb-6">
-            <label className="block mb-3 text-sm font-semibold text-gray-300 uppercase tracking-wider">Luck Assumption (Anvils per Mythic+)</label>
-            <div className="flex gap-4">
-              <button onClick={() => { setLuckLevel(50); setAnvilsStr(Math.round(calculatedCopies * 50).toString()); }} className={`flex-1 py-2 rounded border transition-colors ${luckLevel === 50 ? 'bg-green-500/20 border-green-500 text-green-400' : 'border-gray-600 hover:bg-gray-700'}`}>Lucky (~50)</button>
-              <button onClick={() => { setLuckLevel(100); setAnvilsStr(Math.round(calculatedCopies * 100).toString()); }} className={`flex-1 py-2 rounded border transition-colors ${luckLevel === 100 ? 'bg-blue-500/20 border-blue-500 text-blue-400' : 'border-gray-600 hover:bg-gray-700'}`}>Average (~100)</button>
-              <button onClick={() => { setLuckLevel(200); setAnvilsStr(Math.round(calculatedCopies * 200).toString()); }} className={`flex-1 py-2 rounded border transition-colors ${luckLevel === 200 ? 'bg-purple-500/20 border-purple-500 text-purple-400' : 'border-gray-600 hover:bg-gray-700'}`}>Pity (200)</button>
+          {activeTab !== 'schedule' && (
+            <div className="mb-8">
+              <label className="block mb-3 text-sm font-semibold text-gray-300 uppercase tracking-wider">Luck Assumption (Anvils per Mythic+)</label>
+              <div className="flex gap-4">
+                <button onClick={() => { setLuckLevel(50); setAnvilsStr(Math.round(calculatedCopies * 50).toString()); }} className={`flex-1 py-2 rounded border transition-colors ${luckLevel === 50 ? 'bg-green-500/20 border-green-500 text-green-400' : 'border-gray-600 hover:bg-gray-700'}`}>Lucky (~50)</button>
+                <button onClick={() => { setLuckLevel(100); setAnvilsStr(Math.round(calculatedCopies * 100).toString()); }} className={`flex-1 py-2 rounded border transition-colors ${luckLevel === 100 ? 'bg-blue-500/20 border-blue-500 text-blue-400' : 'border-gray-600 hover:bg-gray-700'}`}>Average (~100)</button>
+                <button onClick={() => { setLuckLevel(200); setAnvilsStr(Math.round(calculatedCopies * 200).toString()); }} className={`flex-1 py-2 rounded border transition-colors ${luckLevel === 200 ? 'bg-purple-500/20 border-purple-500 text-purple-400' : 'border-gray-600 hover:bg-gray-700'}`}>Pity (200)</button>
+              </div>
             </div>
-          </div>
+          )}
 
+          {/* ================= ВКЛАДКА 1 ================= */}
           {activeTab === 'total' && (
             <div className="space-y-8 animate-fade-in">
               <div className="flex flex-col md:flex-row gap-4 items-stretch md:items-start">
@@ -230,7 +459,6 @@ export default function App() {
                     {calculatedShards === 0 ? 'None' : `${totalCurrentStar.tier} ${totalCurrentStar.stars}★`}
                   </span>
                 </div>
-                
                 <div className="grid grid-cols-5 gap-2">
                   {(['White', 'Blue', 'Purple', 'Gold', 'Red'] as Tier[]).map((tier) => {
                     const isActive = expandedTierTotal === tier;
@@ -238,7 +466,6 @@ export default function App() {
                     return <button key={tier} onClick={() => setExpandedTierTotal(isActive ? null : tier)} className={`py-3 rounded font-bold text-sm transition-all border ${btnClass}`}>{tier}</button>;
                   })}
                 </div>
-
                 {expandedTierTotal && (
                   <div className="grid grid-cols-5 gap-2 pt-2 animate-fade-in">
                     {[1, 2, 3, 4, 5].map((star) => {
@@ -246,7 +473,6 @@ export default function App() {
                       const isExceedingMax = target ? target.totalShards > MAX_SHARDS : false;
                       const isSelected = totalCurrentStar.tier === expandedTierTotal && totalCurrentStar.stars === star;
                       const colorClass = isSelected ? TIER_COLORS[expandedTierTotal].active : TIER_COLORS[expandedTierTotal].outline;
-                      
                       return (
                         <button key={star} disabled={isExceedingMax} onClick={() => handleTotalStarSelect(expandedTierTotal, star)} className={`py-2 rounded border text-sm transition-all font-bold ${isExceedingMax ? 'bg-gray-900 border-gray-800 text-gray-800 cursor-not-allowed' : colorClass}`}>
                           {star}★
@@ -259,6 +485,7 @@ export default function App() {
             </div>
           )}
 
+          {/* ================= ВКЛАДКА 2 ================= */}
           {activeTab === 'path' && (
             <div className="space-y-8 animate-fade-in">
               <div>
@@ -283,16 +510,11 @@ export default function App() {
 
               <div className="w-full">
                 <label className="block mb-3 text-sm font-semibold text-gray-300">2. Extra Shards Owned</label>
-                <CustomNumberInput 
-                  value={extraShardsStr} 
-                  onChange={(val) => {
+                <CustomNumberInput value={extraShardsStr} onChange={(val) => {
                     if (val === '') { setExtraShardsStr(''); return; }
                     const num = parseInt(val, 10);
                     if (!isNaN(num)) setExtraShardsStr(Math.max(0, num).toString());
-                  }} 
-                  placeholder="e.g. 49"
-                  step={1}
-                />
+                  }} placeholder="e.g. 49" step={1} />
               </div>
 
               <div className="pt-6 border-t border-gray-700">
@@ -320,9 +542,7 @@ export default function App() {
                 <h3 className="text-lg font-bold text-purple-400 mb-4">Remaining to {pathTargetTier} {pathTargetStar}★</h3>
                 
                 {remainingShards === 0 ? (
-                  <div className="text-center text-gray-400 py-2">
-                    You have already reached or surpassed this target! 🎉
-                  </div>
+                  <div className="text-center text-gray-400 py-2">You have already reached or surpassed this target! 🎉</div>
                 ) : (
                   <div className="grid grid-cols-3 gap-4 text-center">
                     <div className="space-y-1"><div className="text-sm text-gray-400">Shards</div><div className="text-2xl font-bold text-gray-100">{remainingShards}</div></div>
@@ -334,17 +554,157 @@ export default function App() {
             </div>
           )}
 
-          <div className="bg-gray-950/50 rounded-lg p-4 border-l-4 border-purple-500 mt-8">
-            <h4 className="font-semibold text-purple-400 mb-1">💡 Optimization Tip</h4>
-            <p className="text-sm text-gray-400 leading-relaxed">
-              The best breakpoints for most characters are the <strong className="text-gray-200">1st star</strong> and <strong className="text-gray-200">3rd star</strong> of their respective tiers.<br />
-              <span className="italic">Note: Excluding White and Red stars. You will need at least 5 White stars to unlock Multiversal Force via AC/DC shards.</span>
-            </p>
-          </div>
+          {/* ================= ВКЛАДКА 3: SCHEDULE PLANNER ================= */}
+          {activeTab === 'schedule' && (
+            <div className="space-y-6 animate-fade-in">
+              
+              <div className="bg-gray-950/50 rounded-xl p-5 border border-gray-700">
+                <h4 className="font-bold text-gray-200 mb-2 flex items-center gap-2">
+                  <span className="text-purple-400">ℹ️</span> F2P Tracker Rules
+                </h4>
+                <ul className="text-sm text-gray-400 space-y-1 ml-6 list-disc mb-4">
+                  <li><strong>Strict Minimum:</strong> Calculates strictly F2P daily income (Shop + infiltrate Expeditions) = 7 Anvils/day.</li>
+                  <li><strong>Weekly Bonuses:</strong> Automatically adds +4 Anvils (Mondays) and +40 Anvils / 3000 Gems (Sundays).</li>
+                  <li><strong>Auto-Chaining:</strong> Leave the banner start date <span className="text-gray-200">empty</span> to automatically connect it to the end of the previous one.</li>
+                  <li><strong>Gaps Allowed:</strong> If you input a specific date with a gap (e.g. 3 months later), resources will secretly accumulate during that empty period!</li>
+                </ul>
+              </div>
+
+<div className="flex justify-center gap-4 mt-6">
+  <button 
+    onClick={handleExport} 
+    className="px-4 py-2 text-sm bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-gray-200 rounded border border-gray-700 hover:border-gray-500 transition-colors shadow-sm"
+  >
+    💾 Save Backup
+  </button>
+  
+  <label className="px-4 py-2 text-sm bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-gray-200 rounded border border-gray-700 hover:border-gray-500 transition-colors shadow-sm cursor-pointer">
+    📂 Load Backup
+    <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+  </label>
+</div>
+
+              {finalResult && (
+                <div className="bg-gradient-to-r from-gray-900 to-gray-950 p-6 rounded-xl border border-purple-500/30 shadow-lg text-center">
+                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Final Projected Resources</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-xs text-gray-500 mb-1">Total Gems Accumulated</div>
+                      <div className="text-3xl font-bold text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]">
+                        {finalResult.gemsCost.toLocaleString()}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500 mb-1">Anvils Remaining</div>
+                      <div className={`text-3xl font-bold drop-shadow-[0_0_8px_rgba(168,85,247,0.5)] ${finalResult.anvilsAfter < 0 ? 'text-red-500' : 'text-purple-400'}`}>
+                        {finalResult.anvilsAfter}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-gray-950 p-4 rounded-xl border border-gray-700 flex flex-col md:flex-row gap-4 items-end">
+                <div className="flex-1 w-full">
+                  <label className="block mb-2 text-sm font-semibold text-gray-300">Tracking Start Date</label>
+                  <input type="date" value={trackingSettings.startDate || ''} onChange={e => setTrackingSettings({...trackingSettings, startDate: e.target.value})} className="w-full bg-gray-900 border border-gray-600 rounded p-3 text-sm focus:border-purple-500 outline-none transition-colors text-gray-200" />
+                </div>
+                <div className="flex-1 w-full">
+                  <label className="block mb-2 text-sm font-semibold text-gray-300">Current Anvils Owned</label>
+                  <CustomNumberInput 
+                    value={String(trackingSettings.anvils || 0)} 
+                    onChange={v => { 
+                      if (v === '') { setTrackingSettings({...trackingSettings, anvils: 0}); return; }
+                      const n = parseInt(v, 10); 
+                      if(!isNaN(n)) setTrackingSettings({...trackingSettings, anvils: Math.max(0, n)}); 
+                    }} 
+                    step={1} 
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {placedBanners.map((banner, index) => {
+                  const result = scheduleResults[banner.id];
+                  const isRelease = banner.type === 'Release';
+                  const isPull = banner.decision === 'Pull';
+                  
+                  return (
+                    <div 
+                      key={banner.id} 
+                      onClick={() => setEditingBannerId(banner.id)}
+                      className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all hover:-translate-y-1 hover:shadow-xl group
+                        ${isRelease ? 'border-yellow-600/40 bg-yellow-900/10 hover:border-yellow-500' : 'border-purple-600/40 bg-purple-900/10 hover:border-purple-500'}`}
+                    >
+                      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                         <button onClick={(e) => { e.stopPropagation(); moveBanner(index, 'up'); }} disabled={index === 0} className="p-1 text-gray-500 hover:text-white disabled:opacity-0 bg-gray-900 rounded">▲</button>
+                         <button onClick={(e) => { e.stopPropagation(); moveBanner(index, 'down'); }} disabled={index === placedBanners.length - 1} className="p-1 text-gray-500 hover:text-white disabled:opacity-0 bg-gray-900 rounded">▼</button>
+                      </div>
+
+                      <div className="text-[10px] uppercase font-bold tracking-wider text-gray-500 mb-1">
+                        {formatDate(banner.startDate)} — {formatDate(banner.endDate)}
+                      </div>
+                      
+                      <div className={`font-bold text-lg truncate mb-3 ${isRelease ? 'text-yellow-400' : 'text-purple-400'}`}>
+                        {banner.name || 'Unnamed Banner'}
+                      </div>
+                      
+                      <div className="flex justify-between items-end border-t border-gray-800/50 pt-3">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-gray-500 uppercase">{banner.type}</span>
+                          <span className={`text-sm font-bold ${isPull ? 'text-green-400' : 'text-gray-400'}`}>
+                            {isPull ? `PULL (${banner.budget})` : 'SKIP'}
+                          </span>
+                        </div>
+                        
+                        {result && (
+                          <div className="text-right">
+                            <span className="text-[10px] text-gray-500 uppercase block">Anvils Left</span>
+                            <span className={`text-lg font-mono font-bold ${result.anvilsAfter < 0 ? 'text-red-500' : 'text-gray-200'}`}>
+                              {result.anvilsAfter}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button onClick={handleAddBanner} className="w-full py-4 border-2 border-dashed border-gray-700 text-gray-400 hover:border-purple-500 hover:text-purple-400 hover:bg-purple-900/10 rounded-xl transition-all font-bold tracking-wider mb-4">
+                + ADD NEW BANNER
+              </button>
+            </div>
+
+          )}
+
+          {activeTab !== 'schedule' && (
+             <div className="bg-gray-950/50 rounded-lg p-4 border-l-4 border-purple-500 mt-8">
+               <h4 className="font-semibold text-purple-400 mb-1">💡 Optimization Tip</h4>
+               <p className="text-sm text-gray-400 leading-relaxed">
+                 The best breakpoints for most characters are the <strong className="text-gray-200">1st star</strong> and <strong className="text-gray-200">3rd star</strong> of their respective tiers.<br />
+                 <span className="italic">Note: Excluding White and Red stars. You will need at least 5 White stars to unlock Multiversal Force via AC/DC shards.</span><br />
+<span className="text-sm text-gray-400 leading-relaxed">Maximum character pulls allowed: <strong>26</strong> (1 Base Unlock + 25 Upgrade Copies).</span>
+               </p>
+             </div>
+          )}
           
-          <div className="text-center text-xs text-gray-500 pt-4 border-t border-gray-700/50">
-            Maximum character pulls allowed: <strong>26</strong> (1 Base Unlock + 25 Upgrade Copies).
+          <div className="text-center text-xs text-gray-500 pt-4 mt-4 border-t border-gray-700/50">
+            <center><a 
+              href="https://ko-fi.com/E1E31PNEUQ" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="transition-transform hover:scale-105 hover:shadow-[0_0_15px_rgba(168,85,247,0.4)] rounded-lg"
+            >
+              <img 
+                height="36" 
+                style={{ border: 0, height: '36px' }} 
+                src="https://storage.ko-fi.com/cdn/kofi3.png?v=6" 
+                alt="Buy Me a Coffee at ko-fi.com" 
+              />
+            </a></center>
           </div>
+
         </div>
       </div>
     </div>
