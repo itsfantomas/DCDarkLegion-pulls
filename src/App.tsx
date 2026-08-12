@@ -57,6 +57,10 @@ interface BannerNode {
   customStartDate: string;
   decision: 'Skip' | 'Pull';
   budget: number;
+  isOwned?: boolean;
+  currentTier?: Tier;
+  currentStar?: number;
+  extraShards?: number;
 }
 
 const parseDateString = (dateStr: string) => {
@@ -77,53 +81,44 @@ const formatDate = (date: Date) => {
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-const calculateSchedule = (banners: BannerNode[], trackingStartDate: string, initialAnvils: number) => {
+const calculateSchedule = (
+  banners: BannerNode[], 
+  trackingStartDate: string, 
+  initialAnvils: number, 
+  isCustomIncome: boolean, 
+  customMonthlyAnvils: number
+) => {
   if (!Array.isArray(banners)) return { placed: [], results: {} };
   
-  // Создаем ДВА независимых параллельных трека
   let nextReleaseStart = parseDateString(trackingStartDate);
   let nextRerunStart = parseDateString(trackingStartDate);
   
   const placed = banners.map(b => {
     let sDate: Date;
-    
     if (b.customStartDate) {
       sDate = parseDateString(b.customStartDate);
-      // Если юзер жестко задал дату, сбрасываем нужный трек на эту дату
       if (b.type === 'Release') nextReleaseStart = new Date(sDate);
       else nextRerunStart = new Date(sDate);
     } else {
-      // Если даты нет, берем старт из соответствующего трека!
       sDate = b.type === 'Release' ? new Date(nextReleaseStart) : new Date(nextRerunStart);
     }
     
     const duration = b.type === 'Release' ? 28 : 14;
-    
-    // Вычисляем конец
     const eDate = new Date(sDate);
     eDate.setDate(eDate.getDate() + duration - 1);
     
-    // Вычисляем старт для следующего баннера в ЭТОЙ ЖЕ цепочке
     const nextDate = new Date(eDate);
     nextDate.setDate(nextDate.getDate() + 1);
     
-    if (b.type === 'Release') {
-      nextReleaseStart = nextDate;
-    } else {
-      nextRerunStart = nextDate;
-    }
+    if (b.type === 'Release') nextReleaseStart = nextDate;
+    else nextRerunStart = nextDate;
     
     return { ...b, startDate: sDate, endDate: eDate };
   });
 
   const sorted = [...placed].sort((a, b) => a.endDate.getTime() - b.endDate.getTime());
-
-  let minDate = parseDateString(trackingStartDate);
-  placed.forEach(b => {
-    if (b.startDate < minDate) minDate = new Date(b.startDate);
-  });
   
-  let simDate = new Date(minDate);
+  let simDate = parseDateString(trackingStartDate);
   const maxDate = sorted.length > 0 ? new Date(sorted[sorted.length - 1].endDate) : new Date(simDate);
   
   let currAnvils = initialAnvils || 0;
@@ -133,22 +128,29 @@ const calculateSchedule = (banners: BannerNode[], trackingStartDate: string, ini
   let safeguards = 0;
   if (isNaN(simDate.getTime()) || isNaN(maxDate.getTime())) return { placed, results };
 
+  const dailyCustomAnvils = isCustomIncome ? (customMonthlyAnvils / 30) : 0;
+
   while(simDate <= maxDate && safeguards < 3650) { 
-    currAnvils += 7;
     currGems += 180;
     const day = simDate.getDay();
-    if (day === 1) currAnvils += 4; 
     if (day === 0) { 
-      currAnvils += 40;
       currGems += 3000;
+    }
+
+    if (isCustomIncome) {
+      currAnvils += dailyCustomAnvils;
+    } else {
+      currAnvils += 7;
+      if (day === 1) currAnvils += 4; 
+      if (day === 0) currAnvils += 40; 
     }
     
     sorted.forEach(b => {
       if (b.endDate.getTime() === simDate.getTime()) {
-         const anvilsBefore = currAnvils;
+         const anvilsBefore = Math.floor(currAnvils);
          const budget = Number(b.budget) || 0;
          if (b.decision === 'Pull') currAnvils -= budget;
-         results[b.id] = { anvilsBefore, anvilsAfter: currAnvils, gemsCost: currGems };
+         results[b.id] = { anvilsBefore, anvilsAfter: Math.floor(currAnvils), gemsCost: currGems };
       }
     });
     
@@ -212,6 +214,8 @@ export default function App() {
   const [pathTargetStar, setPathTargetStar] = useState<number>(5);
   const [expandedTargetTierPath, setExpandedTargetTierPath] = useState<Tier | null>('Red');
 
+  const [bannerFilter, setBannerFilter] = useState<'All' | 'Active' | 'Pulls'>('All');
+
   const [schedule, setSchedule] = useState<BannerNode[]>(() => {
     try {
       const saved = localStorage.getItem('dc-legion-schedule');
@@ -224,7 +228,12 @@ export default function App() {
   });
   
   const [trackingSettings, setTrackingSettings] = useState(() => {
-    const defaultSettings = { startDate: new Date().toISOString().split('T')[0], anvils: 0 };
+    const defaultSettings = { 
+      startDate: new Date().toISOString().split('T')[0], 
+      anvils: 0,
+      isCustomIncome: false,
+      customMonthlyAnvils: 300
+    };
     try {
       const saved = localStorage.getItem('dc-legion-tracking');
       if (!saved) return defaultSettings;
@@ -294,10 +303,48 @@ export default function App() {
 
   // ==================== SCHEDULE PLANNER ЛОГИКА ====================
   const { placed: placedBanners, results: scheduleResults } = useMemo(() => {
-    return calculateSchedule(schedule, trackingSettings.startDate, trackingSettings.anvils);
+    return calculateSchedule(
+      schedule, 
+      trackingSettings.startDate, 
+      trackingSettings.anvils,
+      trackingSettings.isCustomIncome,
+      trackingSettings.customMonthlyAnvils
+    );
   }, [schedule, trackingSettings]);
 
-// Экспорт данных в файлик
+  const handleAddBanner = () => {
+    const newId = generateId();
+    setSchedule([...schedule, { 
+      id: newId, 
+      name: '', 
+      type: 'Release', 
+      customStartDate: '', 
+      decision: 'Skip', 
+      budget: 300,
+      isOwned: false,
+      currentTier: 'White',
+      currentStar: 1,
+      extraShards: 0
+    }]);
+    setEditingBannerId(newId);
+  };
+  
+  const handleDeleteBanner = (id: string) => {
+    setSchedule(schedule.filter(b => b.id !== id));
+    if (editingBannerId === id) setEditingBannerId(null);
+  };
+  
+  const updateBanner = (id: string, field: keyof BannerNode, value: any) => setSchedule(schedule.map(b => b.id === id ? { ...b, [field]: value } : b));
+  
+  const moveBanner = (index: number, direction: 'up' | 'down') => {
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === schedule.length - 1) return;
+    const newSchedule = [...schedule];
+    const swapIndex = direction === 'up' ? index - 1 : index + 1;
+    [newSchedule[index], newSchedule[swapIndex]] = [newSchedule[swapIndex], newSchedule[index]];
+    setSchedule(newSchedule);
+  };
+
   const handleExport = () => {
     const dataToSave = { schedule, trackingSettings };
     const blob = new Blob([JSON.stringify(dataToSave, null, 2)], { type: 'application/json' });
@@ -309,7 +356,6 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  // Импорт данных из файлика
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -325,40 +371,60 @@ export default function App() {
       }
     };
     reader.readAsText(file);
-    // Сбрасываем input, чтобы можно было загрузить тот же файл еще раз
     e.target.value = '';
   };
 
-// Полная очистка расписания
   const handleClearAll = () => {
     if (window.confirm('Are you sure you want to clear your entire schedule? This cannot be undone!')) {
       setSchedule([]);
-      // Сбрасываем стартовые настройки на сегодняшний день
-      setTrackingSettings({ startDate: new Date().toISOString().split('T')[0], anvils: 0 });
-      // На всякий случай жестко чистим кэш браузера
+      setTrackingSettings({ startDate: new Date().toISOString().split('T')[0], anvils: 0, isCustomIncome: false, customMonthlyAnvils: 300 });
       localStorage.removeItem('dc-legion-schedule');
       localStorage.removeItem('dc-legion-tracking');
     }
   };
 
-  const handleAddBanner = () => {
-    const newId = generateId();
-    setSchedule([...schedule, { id: newId, name: '', type: 'Release', customStartDate: '', decision: 'Skip', budget: 300 }]);
-    setEditingBannerId(newId);
-  };
-  const handleDeleteBanner = (id: string) => {
-    setSchedule(schedule.filter(b => b.id !== id));
-    if (editingBannerId === id) setEditingBannerId(null);
-  };
-  const updateBanner = (id: string, field: keyof BannerNode, value: any) => setSchedule(schedule.map(b => b.id === id ? { ...b, [field]: value } : b));
-  
-  const moveBanner = (index: number, direction: 'up' | 'down') => {
-    if (direction === 'up' && index === 0) return;
-    if (direction === 'down' && index === schedule.length - 1) return;
-    const newSchedule = [...schedule];
-    const swapIndex = direction === 'up' ? index - 1 : index + 1;
-    [newSchedule[index], newSchedule[swapIndex]] = [newSchedule[swapIndex], newSchedule[index]];
-    setSchedule(newSchedule);
+  // ==================== 🎲 МАГИЯ ПРЕДСКАЗАНИЯ 🎲 ====================
+  const getProjectedStats = (b: BannerNode, luck: number) => {
+    if (b.decision !== 'Pull' || !b.budget) return null;
+    const pulledCopies = Math.floor(b.budget / luck);
+    
+    if (pulledCopies === 0) return { text: 'No copies 😢', color: 'text-gray-500' };
+
+    const bOwned = b.isOwned || false;
+    let finalShards = 0;
+    
+    if (bOwned) {
+      const bTier = b.currentTier || 'White';
+      const bStar = b.currentStar || 1;
+      const bExtra = Number(b.extraShards) || 0;
+      const baseTarget = STAR_DATA.find(s => s.tier === bTier && s.stars === bStar);
+      const baseShards = baseTarget ? baseTarget.totalShards : 0;
+      finalShards = baseShards + bExtra + (pulledCopies * SHARDS_PER_COPY);
+    } else {
+      finalShards = (pulledCopies - 1) * SHARDS_PER_COPY;
+      if (finalShards < 0) finalShards = 0;
+    }
+
+    if (finalShards === 0 && !bOwned) {
+      return { text: 'Base Unlock ✨', color: 'text-gray-300' };
+    }
+
+    const cappedShards = Math.min(finalShards, MAX_SHARDS);
+    let current = STAR_DATA[0];
+    for (let i = 0; i < STAR_DATA.length; i++) {
+      if (cappedShards >= STAR_DATA[i].totalShards) current = STAR_DATA[i];
+      else break;
+    }
+
+    const tierColorMap: Record<Tier, string> = {
+      White: 'text-gray-300',
+      Blue: 'text-blue-400',
+      Purple: 'text-purple-400',
+      Gold: 'text-yellow-400',
+      Red: 'text-red-500'
+    };
+
+    return { text: `${current.tier} ${current.stars}★`, color: tierColorMap[current.tier] };
   };
 
   const editingBanner = schedule.find(b => b.id === editingBannerId);
@@ -368,10 +434,10 @@ export default function App() {
     <div className="min-h-screen bg-gray-950 text-gray-100 p-4 md:p-8 font-sans relative overflow-hidden flex flex-col items-center">
       <div className="absolute inset-0 opacity-15 bg-[radial-gradient(circle,rgba(168,85,247,0.4)_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none"></div>
 
-      {/* МОДАЛЬНОЕ ОКНО (ПОПАП) ДЛЯ РЕДАКТИРОВАНИЯ */}
+      {/* МОДАЛЬНОЕ ОКНО ДЛЯ РЕДАКТИРОВАНИЯ БАННЕРА */}
       {editingBanner && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
-          <div className="bg-gray-900 border border-purple-500/50 rounded-2xl p-6 w-full max-w-md shadow-2xl relative">
+          <div className="bg-gray-900 border border-purple-500/50 rounded-2xl p-6 w-full max-w-md shadow-2xl relative max-h-[95vh] overflow-y-auto custom-scrollbar">
             <button onClick={() => setEditingBannerId(null)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-xl">✕</button>
             <h3 className="text-xl font-bold text-purple-400 mb-6 border-b border-gray-800 pb-2">Banner Settings</h3>
             
@@ -409,7 +475,77 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="pt-4 flex justify-between">
+              {/* ПЛАН 🎲 : НАСТРОЙКИ ТЕКУЩЕЙ ПРОКАЧКИ */}
+              <div className={`transition-all duration-300 overflow-hidden ${editingBanner.decision === 'Pull' ? 'max-h-[500px] opacity-100 mt-4 border-t border-gray-800 pt-4' : 'max-h-0 opacity-0'}`}>
+                <div className="flex items-center gap-2 mb-4">
+                  <label className="flex items-center cursor-pointer gap-2">
+                    <div className="relative">
+                      <input 
+                        type="checkbox" 
+                        className="sr-only" 
+                        checked={editingBanner.isOwned || false}
+                        onChange={(e) => updateBanner(editingBanner.id, 'isOwned', e.target.checked)}
+                      />
+                      <div className={`block w-10 h-6 rounded-full transition-colors ${(editingBanner.isOwned || false) ? 'bg-purple-500' : 'bg-gray-700'}`}></div>
+                      <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${(editingBanner.isOwned || false) ? 'transform translate-x-4' : ''}`}></div>
+                    </div>
+                    <span className="text-sm font-semibold text-gray-300">I already own this character</span>
+                  </label>
+                </div>
+
+                {(editingBanner.isOwned || false) && (
+                  <div className="grid grid-cols-3 gap-3 bg-gray-950/50 p-3 rounded-lg border border-gray-800 animate-fade-in">
+                    <div>
+                      <label className="block text-[10px] uppercase text-gray-400 mb-1">Current Tier</label>
+                      <select 
+                        value={editingBanner.currentTier || 'White'} 
+                        onChange={e => updateBanner(editingBanner.id, 'currentTier', e.target.value as Tier)} 
+                        className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-xs text-gray-200 outline-none focus:border-purple-500"
+                      >
+                        <option value="White">White</option>
+                        <option value="Blue">Blue</option>
+                        <option value="Purple">Purple</option>
+                        <option value="Gold">Gold</option>
+                        <option value="Red">Red</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase text-gray-400 mb-1">Stars</label>
+                      <select 
+                        value={editingBanner.currentStar || 1} 
+                        onChange={e => updateBanner(editingBanner.id, 'currentStar', parseInt(e.target.value))} 
+                        className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-xs text-gray-200 outline-none focus:border-purple-500"
+                      >
+                        <option value="1">1★</option>
+                        <option value="2">2★</option>
+                        <option value="3">3★</option>
+                        <option value="4">4★</option>
+                        <option value="5">5★</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase text-gray-400 mb-1">Extra Shards</label>
+                      <input 
+                        type="number" 
+                        min="0"
+                        value={editingBanner.extraShards === undefined ? 0 : editingBanner.extraShards} 
+                        onChange={e => {
+                          const v = e.target.value;
+                          if (v === '') updateBanner(editingBanner.id, 'extraShards', 0);
+                          else {
+                            const n = parseInt(v, 10);
+                            if (!isNaN(n)) updateBanner(editingBanner.id, 'extraShards', Math.max(0, n));
+                          }
+                        }} 
+                        className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-xs text-gray-200 outline-none focus:border-purple-500"
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-4 mt-2 flex justify-between border-t border-gray-800">
                 <button onClick={() => handleDeleteBanner(editingBanner.id)} className="px-4 py-2 text-sm text-red-500 hover:bg-red-500/10 rounded transition-colors">Delete Banner</button>
                 <button onClick={() => setEditingBannerId(null)} className="px-6 py-2 text-sm bg-purple-600 hover:bg-purple-500 text-white rounded transition-colors font-bold shadow-lg">Save & Close</button>
               </div>
@@ -424,6 +560,16 @@ export default function App() {
             DC Dark Legion — Gacha Calculator
           </h1>
           
+          {/* ГЛОБАЛЬНАЯ НАСТРОЙКА УДАЧИ ВЫНЕСЕНА НАВЕРХ */}
+          <div className="mb-6 bg-gray-900/50 p-4 rounded-xl border border-gray-800">
+            <label className="block mb-3 text-xs font-bold text-gray-400 uppercase tracking-widest text-center">Global Luck Assumption (Anvils per copy)</label>
+            <div className="flex gap-2 md:gap-4">
+              <button onClick={() => setLuckLevel(50)} className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-all ${luckLevel === 50 ? 'bg-green-500/20 border-green-500 text-green-400 shadow-[0_0_10px_rgba(34,197,94,0.3)]' : 'border-gray-700 text-gray-500 hover:bg-gray-800 hover:text-gray-300'}`}>Lucky (~50)</button>
+              <button onClick={() => setLuckLevel(100)} className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-all ${luckLevel === 100 ? 'bg-blue-500/20 border-blue-500 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.3)]' : 'border-gray-700 text-gray-500 hover:bg-gray-800 hover:text-gray-300'}`}>Average (~100)</button>
+              <button onClick={() => setLuckLevel(200)} className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-all ${luckLevel === 200 ? 'bg-purple-500/20 border-purple-500 text-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.3)]' : 'border-gray-700 text-gray-500 hover:bg-gray-800 hover:text-gray-300'}`}>Pity (200)</button>
+            </div>
+          </div>
+
           <div className="flex flex-wrap gap-2 p-1 bg-gray-800 rounded-lg">
             <button onClick={() => setActiveTab('total')} className={`flex-1 py-3 px-2 text-sm font-bold rounded-md transition-all ${activeTab === 'total' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}>Total Cost</button>
             <button onClick={() => setActiveTab('path')} className={`flex-1 py-3 px-2 text-sm font-bold rounded-md transition-all ${activeTab === 'path' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}>Path to Target</button>
@@ -433,17 +579,6 @@ export default function App() {
 
         <div className="p-6 md:p-8">
           
-          {activeTab !== 'schedule' && (
-            <div className="mb-8">
-              <label className="block mb-3 text-sm font-semibold text-gray-300 uppercase tracking-wider">Luck Assumption (Anvils per Mythic+)</label>
-              <div className="flex gap-4">
-                <button onClick={() => { setLuckLevel(50); setAnvilsStr(Math.round(calculatedCopies * 50).toString()); }} className={`flex-1 py-2 rounded border transition-colors ${luckLevel === 50 ? 'bg-green-500/20 border-green-500 text-green-400' : 'border-gray-600 hover:bg-gray-700'}`}>Lucky (~50)</button>
-                <button onClick={() => { setLuckLevel(100); setAnvilsStr(Math.round(calculatedCopies * 100).toString()); }} className={`flex-1 py-2 rounded border transition-colors ${luckLevel === 100 ? 'bg-blue-500/20 border-blue-500 text-blue-400' : 'border-gray-600 hover:bg-gray-700'}`}>Average (~100)</button>
-                <button onClick={() => { setLuckLevel(200); setAnvilsStr(Math.round(calculatedCopies * 200).toString()); }} className={`flex-1 py-2 rounded border transition-colors ${luckLevel === 200 ? 'bg-purple-500/20 border-purple-500 text-purple-400' : 'border-gray-600 hover:bg-gray-700'}`}>Pity (200)</button>
-              </div>
-            </div>
-          )}
-
           {/* ================= ВКЛАДКА 1 ================= */}
           {activeTab === 'total' && (
             <div className="space-y-8 animate-fade-in">
@@ -578,29 +713,9 @@ export default function App() {
                   <li><strong>Strict Minimum:</strong> Calculates strictly F2P daily income (Shop + infiltrate Expeditions) = 7 Anvils/day.</li>
                   <li><strong>Weekly Bonuses:</strong> Automatically adds +4 Anvils (Mondays) and +40 Anvils / 3000 Gems (Sundays).</li>
                   <li><strong>Auto-Chaining:</strong> Leave the banner start date <span className="text-gray-200">empty</span> to automatically connect it to the end of the previous one.</li>
-                  <li><strong>Gaps Allowed:</strong> If you input a specific date with a gap (e.g. 3 months later), resources will secretly accumulate during that empty period!</li>
+                  <li><strong>Gaps Allowed:</strong> If you input a specific date with a gap, resources will secretly accumulate during that empty period!</li>
                 </ul>
               </div>
-
-<div className="flex justify-center gap-4 mt-6">
-  <button 
-    onClick={handleExport} 
-    className="px-4 py-2 text-sm bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-gray-200 rounded border border-gray-700 hover:border-gray-500 transition-colors shadow-sm"
-  >
-    💾 Save Backup
-  </button>
-  
-  <label className="px-4 py-2 text-sm bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-gray-200 rounded border border-gray-700 hover:border-gray-500 transition-colors shadow-sm cursor-pointer">
-    📂 Load Backup
-    <input type="file" accept=".json" onChange={handleImport} className="hidden" />
-  </label>
-
-<button onClick={handleClearAll} 
-        className="px-4 py-2 text-sm bg-gray-900 hover:bg-red-900/20 text-red-500 hover:text-red-400 rounded border border-red-900/30 hover:border-red-500/50 transition-colors shadow-sm"
-                >
-                  🗑️ Clear All
-</button>
-</div>
 
               {finalResult && (
                 <div className="bg-gradient-to-r from-gray-900 to-gray-950 p-6 rounded-xl border border-purple-500/30 shadow-lg text-center">
@@ -609,7 +724,7 @@ export default function App() {
                     <div>
                       <div className="text-xs text-gray-500 mb-1">Total Gems Accumulated</div>
                       <div className="text-3xl font-bold text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]">
-                        {finalResult.gemsCost.toLocaleString()}
+                        {trackingSettings.isCustomIncome ? '~ ' : ''}{finalResult.gemsCost.toLocaleString()}
                       </div>
                     </div>
                     <div>
@@ -622,67 +737,134 @@ export default function App() {
                 </div>
               )}
 
-              <div className="bg-gray-950 p-4 rounded-xl border border-gray-700 flex flex-col md:flex-row gap-4 items-end">
-                <div className="flex-1 w-full">
-                  <label className="block mb-2 text-sm font-semibold text-gray-300">Tracking Start Date</label>
-                  <input type="date" value={trackingSettings.startDate || ''} onChange={e => setTrackingSettings({...trackingSettings, startDate: e.target.value})} className="w-full bg-gray-900 border border-gray-600 rounded p-3 text-sm focus:border-purple-500 outline-none transition-colors text-gray-200" />
+              {/* БЛОК НАСТРОЕК С ТУМБЛЕРОМ */}
+              <div className="bg-gray-950 p-4 rounded-xl border border-gray-700 flex flex-col gap-4">
+                <div className="flex flex-col md:flex-row gap-4 items-end">
+                  <div className="flex-1 w-full">
+                    <label className="block mb-2 text-sm font-semibold text-gray-300">Tracking Start Date</label>
+                    <input type="date" value={trackingSettings.startDate || ''} onChange={e => setTrackingSettings({...trackingSettings, startDate: e.target.value})} className="w-full bg-gray-900 border border-gray-600 rounded p-3 text-sm focus:border-purple-500 outline-none transition-colors text-gray-200" />
+                  </div>
+                  <div className="flex-1 w-full">
+                    <label className="block mb-2 text-sm font-semibold text-gray-300">Current Anvils Owned</label>
+                    <CustomNumberInput 
+                      value={String(trackingSettings.anvils || 0)} 
+                      onChange={v => { 
+                        if (v === '') { setTrackingSettings({...trackingSettings, anvils: 0}); return; }
+                        const n = parseInt(v, 10); 
+                        if(!isNaN(n)) setTrackingSettings({...trackingSettings, anvils: Math.max(0, n)}); 
+                      }} 
+                      step={1} 
+                    />
+                  </div>
                 </div>
-                <div className="flex-1 w-full">
-                  <label className="block mb-2 text-sm font-semibold text-gray-300">Current Anvils Owned</label>
-                  <CustomNumberInput 
-                    value={String(trackingSettings.anvils || 0)} 
-                    onChange={v => { 
-                      if (v === '') { setTrackingSettings({...trackingSettings, anvils: 0}); return; }
-                      const n = parseInt(v, 10); 
-                      if(!isNaN(n)) setTrackingSettings({...trackingSettings, anvils: Math.max(0, n)}); 
-                    }} 
-                    step={1} 
-                  />
+                
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mt-2 pt-4 border-t border-gray-800">
+                  <label className="flex items-center cursor-pointer gap-2">
+                    <div className="relative">
+                      <input 
+                        type="checkbox" 
+                        className="sr-only" 
+                        checked={trackingSettings.isCustomIncome}
+                        onChange={(e) => setTrackingSettings({...trackingSettings, isCustomIncome: e.target.checked})}
+                      />
+                      <div className={`block w-10 h-6 rounded-full transition-colors ${trackingSettings.isCustomIncome ? 'bg-purple-500' : 'bg-gray-700'}`}></div>
+                      <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${trackingSettings.isCustomIncome ? 'transform translate-x-4' : ''}`}></div>
+                    </div>
+                    <span className="text-sm font-semibold text-gray-300">Enable Custom Monthly Income</span>
+                  </label>
+                  
+                  <div className={`transition-opacity duration-300 w-full sm:w-auto ${trackingSettings.isCustomIncome ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500 whitespace-nowrap">Monthly Anvils:</span>
+                      <div className="w-24">
+                        <CustomNumberInput 
+                          value={String(trackingSettings.customMonthlyAnvils || 0)} 
+                          onChange={v => { 
+                            if (v === '') { setTrackingSettings({...trackingSettings, customMonthlyAnvils: 0}); return; }
+                            const n = parseInt(v, 10); 
+                            if(!isNaN(n)) setTrackingSettings({...trackingSettings, customMonthlyAnvils: Math.max(0, n)}); 
+                          }} 
+                          step={10} 
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
+              {/* ФИЛЬТРЫ БАННЕРОВ */}
+              <div className="flex flex-wrap gap-2 mb-2 border-b border-gray-800 pb-4">
+                <button onClick={() => setBannerFilter('All')} className={`px-4 py-1.5 text-xs font-bold rounded-full transition-colors border ${bannerFilter === 'All' ? 'bg-purple-600 border-purple-500 text-white' : 'bg-gray-900 border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500'}`}>All Banners</button>
+                <button onClick={() => setBannerFilter('Active')} className={`px-4 py-1.5 text-xs font-bold rounded-full transition-colors border ${bannerFilter === 'Active' ? 'bg-purple-600 border-purple-500 text-white' : 'bg-gray-900 border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500'}`}>Active & Future</button>
+                <button onClick={() => setBannerFilter('Pulls')} className={`px-4 py-1.5 text-xs font-bold rounded-full transition-colors border ${bannerFilter === 'Pulls' ? 'bg-purple-600 border-purple-500 text-white' : 'bg-gray-900 border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500'}`}>Pulls Only</button>
+              </div>
+
+              {/* СЕТКА БАННЕРОВ */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {placedBanners.map((banner, index) => {
+                {placedBanners.filter(b => {
+                  const isExpired = b.endDate.getTime() < parseDateString(trackingSettings.startDate).getTime();
+                  if (bannerFilter === 'Active' && isExpired) return false;
+                  if (bannerFilter === 'Pulls' && b.decision !== 'Pull') return false;
+                  return true;
+                }).map((banner, index) => {
                   const result = scheduleResults[banner.id];
                   const isRelease = banner.type === 'Release';
                   const isPull = banner.decision === 'Pull';
+                  const isExpired = banner.endDate.getTime() < parseDateString(trackingSettings.startDate).getTime();
+                  
+                  // РАСЧЕТ ПРОГНОЗА
+                  const projected = getProjectedStats(banner, luckLevel);
                   
                   return (
                     <div 
                       key={banner.id} 
                       onClick={() => setEditingBannerId(banner.id)}
-                      className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all hover:-translate-y-1 hover:shadow-xl group
-                        ${isRelease ? 'border-yellow-600/40 bg-yellow-900/10 hover:border-yellow-500' : 'border-purple-600/40 bg-purple-900/10 hover:border-purple-500'}`}
+                      className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all hover:-translate-y-1 hover:shadow-xl group flex flex-col justify-between
+                        ${isRelease ? 'border-yellow-600/40 bg-yellow-900/10' : 'border-purple-600/40 bg-purple-900/10'}
+                        ${isExpired ? 'opacity-40 grayscale hover:opacity-100 hover:grayscale-0' : (isRelease ? 'hover:border-yellow-500' : 'hover:border-purple-500')}`}
                     >
-                      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                         <button onClick={(e) => { e.stopPropagation(); moveBanner(index, 'up'); }} disabled={index === 0} className="p-1 text-gray-500 hover:text-white disabled:opacity-0 bg-gray-900 rounded">▲</button>
-                         <button onClick={(e) => { e.stopPropagation(); moveBanner(index, 'down'); }} disabled={index === placedBanners.length - 1} className="p-1 text-gray-500 hover:text-white disabled:opacity-0 bg-gray-900 rounded">▼</button>
-                      </div>
+                      <div>
+                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                           <button onClick={(e) => { e.stopPropagation(); moveBanner(index, 'up'); }} disabled={index === 0} className="p-1 text-gray-500 hover:text-white disabled:opacity-0 bg-gray-900 rounded">▲</button>
+                           <button onClick={(e) => { e.stopPropagation(); moveBanner(index, 'down'); }} disabled={index === placedBanners.length - 1} className="p-1 text-gray-500 hover:text-white disabled:opacity-0 bg-gray-900 rounded">▼</button>
+                        </div>
 
-                      <div className="text-[10px] uppercase font-bold tracking-wider text-gray-500 mb-1">
-                        {formatDate(banner.startDate)} — {formatDate(banner.endDate)}
-                      </div>
-                      
-                      <div className={`font-bold text-lg truncate mb-3 ${isRelease ? 'text-yellow-400' : 'text-purple-400'}`}>
-                        {banner.name || 'Unnamed Banner'}
-                      </div>
-                      
-                      <div className="flex justify-between items-end border-t border-gray-800/50 pt-3">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] text-gray-500 uppercase">{banner.type}</span>
-                          <span className={`text-sm font-bold ${isPull ? 'text-green-400' : 'text-gray-400'}`}>
-                            {isPull ? `PULL (${banner.budget})` : 'SKIP'}
-                          </span>
+                        <div className="text-[10px] uppercase font-bold tracking-wider text-gray-500 mb-1 flex justify-between">
+                          <span>{formatDate(banner.startDate)} — {formatDate(banner.endDate)}</span>
+                          {isExpired && <span className="text-red-400 drop-shadow-[0_0_5px_rgba(248,113,113,0.5)]">EXPIRED</span>}
                         </div>
                         
-                        {result && (
-                          <div className="text-right">
-                            <span className="text-[10px] text-gray-500 uppercase block">Anvils Left</span>
-                            <span className={`text-lg font-mono font-bold ${result.anvilsAfter < 0 ? 'text-red-500' : 'text-gray-200'}`}>
-                              {result.anvilsAfter}
-                            </span>
-                          </div>
-                        )}
+                        <div className={`font-bold text-lg truncate mb-3 ${isRelease ? 'text-yellow-400' : 'text-purple-400'}`}>
+                          {banner.name || 'Unnamed Banner'}
+                        </div>
+                      </div>
+                      
+                      <div className="flex justify-between items-end border-t border-gray-800/50 pt-3 mt-2">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-gray-500 uppercase">{banner.type}</span>
+                          <span className={`text-sm font-bold ${isPull ? 'text-green-400' : 'text-gray-400'} ${isExpired && isPull ? 'line-through opacity-70' : ''}`}>
+                            {isPull ? `PULL (${banner.budget})` : 'SKIP'}
+                          </span>
+                          {/* ЗДЕСЬ ВЫВОДИТСЯ ПРОГНОЗ */}
+                          {isPull && projected && (
+                             <span className={`text-xs mt-1 font-bold tracking-wide ${projected.color} drop-shadow-md`}>
+                               🎲 {projected.text}
+                             </span>
+                          )}
+                        </div>
+                        
+                        <div className="text-right">
+                          <span className="text-[10px] text-gray-500 uppercase block">Anvils Left</span>
+                          {isExpired ? (
+                             <span className="text-lg font-mono font-bold text-gray-600">—</span>
+                          ) : result ? (
+                             <span className={`text-lg font-mono font-bold ${result.anvilsAfter < 0 ? 'text-red-500' : 'text-gray-200'}`}>
+                               {result.anvilsAfter}
+                             </span>
+                          ) : (
+                             <span className="text-lg font-mono font-bold text-gray-600">...</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -692,8 +874,22 @@ export default function App() {
               <button onClick={handleAddBanner} className="w-full py-4 border-2 border-dashed border-gray-700 text-gray-400 hover:border-purple-500 hover:text-purple-400 hover:bg-purple-900/10 rounded-xl transition-all font-bold tracking-wider mb-4">
                 + ADD NEW BANNER
               </button>
-            </div>
 
+              {/* КНОПКИ УПРАВЛЕНИЯ БЭКАПАМИ И ОЧИСТКОЙ */}
+              <div className="flex flex-wrap justify-center gap-4 mt-8 pt-6 border-t border-gray-800">
+                <button onClick={handleExport} className="px-4 py-2 text-sm bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-gray-200 rounded border border-gray-700 hover:border-gray-500 transition-colors shadow-sm">
+                  💾 Save Backup
+                </button>
+                <label className="px-4 py-2 text-sm bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-gray-200 rounded border border-gray-700 hover:border-gray-500 transition-colors shadow-sm cursor-pointer">
+                  📂 Load Backup
+                  <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+                </label>
+                <button onClick={handleClearAll} className="px-4 py-2 text-sm bg-gray-900 hover:bg-red-900/20 text-red-500 hover:text-red-400 rounded border border-red-900/30 hover:border-red-500/50 transition-colors shadow-sm">
+                  🗑️ Clear All
+                </button>
+              </div>
+
+            </div>
           )}
 
           {activeTab !== 'schedule' && (
@@ -707,20 +903,17 @@ export default function App() {
              </div>
           )}
           
-          <div className="text-center text-xs text-gray-500 pt-4 mt-4 border-t border-gray-700/50">
-            <center><a 
+          <div className="text-center text-xs text-gray-500 pt-6 mt-6 border-t border-gray-700/50 flex flex-col items-center gap-4">
+                        
+            <a 
               href="https://ko-fi.com/E1E31PNEUQ" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="transition-transform hover:scale-105 hover:shadow-[0_0_15px_rgba(168,85,247,0.4)] rounded-lg"
+              className="flex items-center gap-2 px-4 py-2 text-sm text-gray-500 bg-gray-900 border border-gray-800 rounded-lg transition-all opacity-70 hover:opacity-100 hover:text-purple-400 hover:border-purple-500/50 hover:bg-purple-900/10 hover:shadow-[0_0_15px_rgba(168,85,247,0.2)]"
             >
-              <img 
-                height="36" 
-                style={{ border: 0, height: '36px' }} 
-                src="https://storage.ko-fi.com/cdn/kofi3.png?v=6" 
-                alt="Buy Me a Coffee at ko-fi.com" 
-              />
-            </a></center>
+              <span className="text-lg">☕</span> 
+              <span className="font-semibold tracking-wide">buy me a coffee</span>
+            </a>
           </div>
 
         </div>
