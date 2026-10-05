@@ -1,0 +1,201 @@
+A '''Faction''' is a conditional effect that is found on [[Champion|champions]] of [[Legendary]] [[rarity]] or higher in [[DC: Dark Legion]]. Faction effects activate when a certain number of champions in the same faction are used in a [[squad]] together. When this qualification is met, all champions in the squad that belong to that faction gain a bonus effect for the duration of battle, such as increased damage, increased hit points, or increasing the speed that their energy regenerates.
+
+A Champion can belong to up to four factions: one related to their powers, and up to three that relate to the teams that the Champion is associated with. Multiple faction effects can be active at the same time, and their effects increase in power with the number of champions in the squad that are in that faction.
+
+== Types of Factions ==
+
+=== Power Factions ===
+Every non-[[Epic]] champion belongs to one Power Faction. Power Factions represent the type of powers the champion possesses, whether they are based on an energy source, technology or equipment, or some other innate power. 
+{| class="fandom-table"
+|+List of Power Factions
+!Icon
+!Name
+!Number of Champions in Roster
+!3 Champion Effect
+!4 Champion Effect
+!5 Champion Effect
+|-
+|[[File:Energy Wielder Icon.png|center|thumb|100x100px]]
+|[[Energy Wielder]]
+|11
+|HP increases by 10%
+|HP increases by 12%
+|HP increases by 15%
+|-
+|[[File:Metahuman Icon.png|center|thumb|100x100px]]
+|[[Metahuman]]
+|25
+|ATK increases by 5% and HP increases by 5%
+|ATK increases by 7% and HP increases by 5%
+|ATK increases by 10% and HP increases by 5%
+|-
+|[[File:Weapon Master Icon.png|center|thumb|100x100px]]
+|[[Weapon Master]]
+|27
+|ATK increases by 10%
+|ATK increases by 12%
+|ATK increases by 15%
+|}
+
+=== Team Factions ===
+In addition to their power faction, a Champion may also belong to up to three team factions. These represent the famous groups of [[Hero|heroes]] and/or [[Villain|villains]] that that champion has been associated with. There are currently 16 teams listed in the DC: Dark Legion database. However only 13 of them have a bonus effect, and of those 13, 12 of them have enough Champions belonging to them so that they can potentially reach their maximum bonus.
+{| class="fandom-table"
+|+List of Team Factions
+!Icon
+!Name
+!Number of Champions in Roster
+!1 Champion Effect
+!2 Champion Effect
+!3 Champion Effect
+!4 Champion Effect
+!5 Champion Effect
+|-
+|[[File:Amazons Icon.png|center|thumb|100x100px]]
+|[[Amazons]]
+|5
+|None
+|None
+|Physical DEF increases by 20%, and gains 5 Energy every 5 seconds.
+|Physical DEF increases by 25%, and gains 8 Energy every 5 seconds.
+|Physical DEF increases by 30%, and gains 10 Energy every 5 seconds.
+|-
+|[[File:Arkham's Most Wanted Icon.png|center|thumb|100x100px]]
+|[[Arkham's Most Wanted]]
+|10
+|None
+|None
+|Damage over time increases by 8%, and HP increases by 10%.
+|Damage over time increases by 16%, and HP increases by 20%.
+|Damage over time increases by 24%, and HP increases by 30%.
+|-
+|[[File:Atlanteans Icon.png|center|thumb|100x100px]]
+|[[Atlanteans]]
+|2
+|None
+|None
+|None
+|None
+|None
+|-
+|[[File:Bat Family Icon.png|center|thumb|100x100px]]
+|[[Bat Family]]
+|10
+|None
+|None
+|Crit Rate increases by 8%, and Dodge increases by 8%
+|Crit Rate increases by 16%, and Dodge increases by 16%
+|Crit Rate increases by 24%, and Dodge increases by 24%
+|-
+|[[File:Birds of Prey Icon.png|center|thumb|100x100px]]
+|[[Birds of Prey]]
+|9
+|None
+|None
+|Lifesteal increases by 15%
+|Lifesteal increases by 18%
+|Lifesteal increases by 24%
+|-
+|[[File:Death Metal Icon.png|center|thumb|100x100px]]
+|[[Death Metal]]
+|2
+|All allies' damage taken reduces by 12%, and their damage dealt increases by 12%.
+|All allies' damage taken reduces by 16%, and their damage dealt increases by 16%.
+| colspan="3" |All allies' damage taken reduces by 20%, and their damage dealt increases by 20%.
+|-
+|[[File:The Flash Family Icon.png|center|thumb|100x100px]]
+|[[The Flash Family]]
+|2
+|None
+|None
+|None
+|None
+|None
+|-
+|[[File:Green Lantern Corps Icon.png|center|thumb|100x100px]]
+|[[Green Lantern Corps]]
+|1
+|None
+|None
+|None
+|None
+|None
+|-
+|[[File:Justice League Icon.png|center|thumb|100x100px]]
+|[[Justice League]]
+|15
+|None
+|None
+|ATK, HP and Ultimate Damage increases by 10%.
+|ATK, HP and Ultimate Damage increases by 20%.
+|ATK, HP and Ultimate Damage increases by 30%.
+|-
+|[[File:Justice League Dark Icon.png|center|thumb|100x100px]]
+|[[Justice League Dark]]
+|6
+|None
+|None
+|Increases the strength of shields they receive by 5%. At the start of battle, grants them a shield equal to 30% of their max HP for 15 seconds.
+|Increases the strength of shields they receive by 20%. At the start of battle, grants them a shield equal to 30% of their max HP for 15 seconds.
+|Increases the strength of shields they receive by 45%. At the start of battle, grants them a shield equal to 30% of their max HP for 15 seconds.
+|-
+|[[File:League of Assassins Icon.png|center|thumb|100x100px]]
+|[[League of Assassins]]
+|6
+|None
+|None
+|Physical DMG increases by 30% when below 70% HP
+|Physical DMG increases by 40% when below 70% HP
+|Physical DMG increases by 50% when below 70% HP
+|-
+|[[File:Legion of Doom Icon.png|center|thumb|100x100px]]
+|[[Legion of Doom]]
+|7
+|None
+|None
+|Energy Restoration speed increases by 10%. At the start of battle, damage dealt increases by 10% for 10 seconds.
+|Energy Restoration speed increases by 20%. At the start of battle, damage dealt increases by 20% for 10 seconds.
+|Energy Restoration speed increases by 30%. At the start of battle, damage dealt increases by 30% for 10 seconds.
+|-
+|[[File:Outsiders Icon.png|center|thumb|100x100px]]
+|[[Outsiders]]
+|4
+|None
+|None
+|Counterattack DMG and HP increases by 10%
+|Counterattack DMG and HP increases by 15%
+|Counterattack DMG and HP increases by 20%
+|-
+|[[File:Suicide Squad Icon.png|center|thumb|100x100px]]
+|[[Suicide Squad]]
+|5
+|None
+|None
+|ATK increases by 20%
+|ATK increases by 25%
+|ATK increases by 30%
+|-
+|[[File:Superman Family Icon.png|center|thumb|100x100px]]
+|[[Superman Family]]
+|5
+|None
+| colspan="4" |Activates Krypton Energy, which increases ATK when Superman Family members have cast their Ultimates a certain number of times.
+|-
+|[[File:Teen Titans Icon.png|center|thumb|100x100px]]
+|[[Teen Titans]]
+|12
+|None
+|None
+|Physical DMG dealt increases by 1% and Spiritual DEF by 2% for each buff they have, stacking up to 15 times.
+|Physical DMG dealt increases by 2% and Spiritual DEF by 4% for each buff they have, stacking up to 15 times.
+|Physical DMG dealt increases by 3% and Spiritual DEF by 6% for each buff they have, stacking up to 15 times.
+|}
+
+== Strategy ==
+
+== Trivia ==
+
+* The Amazons faction is the only one to be mentioned in the database, but to not have any champions that belonged to it at launch.
+[[Category:Gameplay]]
+[[Category:Factions]]
+
+
